@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract CPAMM {
-    IERC20 public immutable token0;
-    IERC20 public immutable token1;
+    using SafeERC20 for IERC20;
+
+    IERC20 public immutable TOKEN0;
+    IERC20 public immutable TOKEN1;
 
     uint public reserve0;
     uint public reserve1;
@@ -12,8 +16,8 @@ contract CPAMM {
     mapping(address => uint) public balanceOf;
 
     constructor(address _token0, address _token1) {
-        token0 = IERC20(_token0);
-        token1 = IERC20(_token1);
+        TOKEN0 = IERC20(_token0);
+        TOKEN1 = IERC20(_token1);
     }
 
     function _mint(address _to, uint _amount) private {
@@ -32,26 +36,29 @@ contract CPAMM {
     }
 
     function swap(address _tokenIn, uint _amountIn) external returns (uint amountOut) {
-        require(_tokenIn == address(token0) || _tokenIn == address(token1), "invalid token");
+        require(_tokenIn == address(TOKEN0) || _tokenIn == address(TOKEN1), "invalid token");
         require(_amountIn > 0, "amount in = 0");
 
-        bool isToken0 = _tokenIn == address(token0);
+        bool isToken0 = _tokenIn == address(TOKEN0);
         (IERC20 tokenIn, IERC20 tokenOut, uint reserveIn, uint reserveOut) = isToken0
-            ? (token0, token1, reserve0, reserve1)
-            : (token1, token0, reserve1, reserve0);
+            ? (TOKEN0, TOKEN1, reserve0, reserve1)
+            : (TOKEN1, TOKEN0, reserve1, reserve0);
 
-        tokenIn.transferFrom(msg.sender, address(this), _amountIn);
+        // Security Update: Using safeTransferFrom
+        tokenIn.safeTransferFrom(msg.sender, address(this), _amountIn);
 
         uint amountInWithFee = (_amountIn * 997) / 1000;
         amountOut = (reserveOut * amountInWithFee) / (reserveIn + amountInWithFee);
 
-        tokenOut.transfer(msg.sender, amountOut);
-        _update(token0.balanceOf(address(this)), token1.balanceOf(address(this)));
+        // Security Update: Using safeTransfer
+        tokenOut.safeTransfer(msg.sender, amountOut);
+        _update(TOKEN0.balanceOf(address(this)), TOKEN1.balanceOf(address(this)));
     }
 
     function addLiquidity(uint _amount0, uint _amount1) external returns (uint shares) {
-        token0.transferFrom(msg.sender, address(this), _amount0);
-        token1.transferFrom(msg.sender, address(this), _amount1);
+        // Security Update: Using safeTransferFrom
+        TOKEN0.safeTransferFrom(msg.sender, address(this), _amount0);
+        TOKEN1.safeTransferFrom(msg.sender, address(this), _amount1);
 
         if (reserve0 > 0 || reserve1 > 0) {
             require(reserve0 * _amount1 == reserve1 * _amount0, "x/y != dx/dy");
@@ -64,12 +71,12 @@ contract CPAMM {
         }
         require(shares > 0, "shares = 0");
         _mint(msg.sender, shares);
-        _update(token0.balanceOf(address(this)), token1.balanceOf(address(this)));
+        _update(TOKEN0.balanceOf(address(this)), TOKEN1.balanceOf(address(this)));
     }
 
     function removeLiquidity(uint _shares) external returns (uint amount0, uint amount1) {
-        uint bal0 = token0.balanceOf(address(this));
-        uint bal1 = token1.balanceOf(address(this));
+        uint bal0 = TOKEN0.balanceOf(address(this));
+        uint bal1 = TOKEN1.balanceOf(address(this));
 
         amount0 = (_shares * bal0) / totalSupply;
         amount1 = (_shares * bal1) / totalSupply;
@@ -78,8 +85,9 @@ contract CPAMM {
         _burn(msg.sender, _shares);
         _update(bal0 - amount0, bal1 - amount1);
 
-        token0.transfer(msg.sender, amount0);
-        token1.transfer(msg.sender, amount1);
+        // Security Update: Using safeTransfer
+        TOKEN0.safeTransfer(msg.sender, amount0);
+        TOKEN1.safeTransfer(msg.sender, amount1);
     }
 
     function _sqrt(uint y) private pure returns (uint z) {
